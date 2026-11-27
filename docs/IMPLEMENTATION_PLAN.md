@@ -23,7 +23,7 @@ The group has four people, so there are four tracks with one owner each. The **O
 
 | Track | Owner | Scope |
 | :--- | :--- | :--- |
-| **A — Platform** | _name_ | Compose stack, migrations, FastAPI, auth, RabbitMQ, PDF parsing and chunking, tracing, releases. |
+| **A — Platform** | Cahya Wirawan | Compose stack, migrations, FastAPI, auth, RabbitMQ, PDF parsing and chunking, tracing, releases. |
 | **B — Retrieval and tools** | _name_ | The three MCP servers, the knowledge graph (LightRAG and Neo4j), hybrid search, the patch agent, the injection suite. |
 | **C — Agents** | _name_ | Shared schemas, the ADK workflow, agents and function nodes, both memory types, the ablation runner and benchmark runs. |
 | **D — Frontend** | _name_ | The React workbench, CI, and the benchmark dataset in weeks 1 and 2. |
