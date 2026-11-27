@@ -60,6 +60,7 @@ flowchart LR
     ES --> FJ["faithfulness_judge"]
     FJ --> QV{"quote_verifier"}
     QV -- "RETRY_JUDGE (max 2)" --> FJ
+    QV -- "UNGROUNDED (retries exhausted)" --> RE
     QV -- "VERIFIED_OK" --> CW["cache_writer"]
     QV -- "NEEDS_PATCH" --> RP["revision_patcher"]
     RP --> CW
@@ -195,7 +196,7 @@ API requests, queue handoffs, agent steps and tool calls share one OpenTelemetry
 | Knowledge graph | Neo4j 5, LightRAG |
 | PDF parsing | Docling, PyMuPDF |
 | Frontend | Vite 6, React 19, TypeScript, Tailwind CSS v4, shadcn/ui, CodeMirror, TanStack Query |
-| Observability | OpenTelemetry, OpenInference, LangFuse |
+| Observability | OpenTelemetry, OpenInference, LangFuse v3 (with ClickHouse, Redis, MinIO) |
 | Packaging | Docker Compose, `uv`, `pnpm` |
 
 ## Planned repository layout
@@ -250,6 +251,7 @@ Planned environment variables:
 | `POSTGRES_PASSWORD`, `NEO4J_PASSWORD`, `RABBITMQ_USER`, `RABBITMQ_PASS` | Data services |
 | `LATEX_MCP_TOKEN`, `CORPUS_MCP_TOKEN`, `ACADEMIC_MCP_TOKEN` | Service-to-service auth |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Trace export |
+| `LANGFUSE_ENCRYPTION_KEY`, `CLICKHOUSE_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_PASSWORD`, `LIGHTRAG_DB_PASSWORD` | Self-hosted LangFuse v3 stack and the LightRAG database role |
 | `SEMANTIC_SCHOLAR_API_KEY`, `OPENALEX_MAILTO` | External scholarly APIs (optional) |
 
 The compose file in the TDD ships development defaults for most of these. Replace every one of them before any non-local deployment.

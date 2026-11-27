@@ -10,7 +10,7 @@ When package manifests are added (`backend/pyproject.toml`, `frontend/package.js
 
 Git tags are the version prefixed with `v`, for example `v0.2.0`.
 
-The "Architecture Baseline v1.0" label inside `docs/TDD.md` is the revision of that document. It is separate from the project version.
+The "Architecture Baseline v1.x" label inside `docs/TDD.md` is the revision of that document. It is separate from the project version.
 
 ## What counts as the public interface
 

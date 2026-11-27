@@ -2,7 +2,7 @@
 
 | Metadata | Details |
 | :--- | :--- |
-| **Document Status** | Proposed — Architecture Baseline v1.0 |
+| **Document Status** | Proposed — Architecture Baseline v1.1 (corrections after checking against google-adk 2.15, lightrag-hku 1.5, langfuse 5.x and fastmcp 4.x) |
 | **Reference Standard** | Adapted from Google ADK Technical Design Document Reference Architecture |
 | **Primary Stack** | Google ADK 2.x, FastMCP (Streamable HTTP), FastAPI, PostgreSQL 18 (`pgvector`, native `uuidv7()`), SQLAlchemy 2.0 (Async), Alembic, RabbitMQ, Neo4j + LightRAG, Vite + React + Tailwind CSS + shadcn/ui, OpenTelemetry + LangFuse, Docker Compose |
 | **Core Objective** | Design, implement, evaluate, and benchmark a production-ready Multi-Agent System that audits Master's thesis drafts (`.tex` / `.md`) against cited literature for factual faithfulness, numeric drift, and citation accuracy. |
@@ -46,7 +46,7 @@ flowchart TB
     subgraph Broker["Message Broker (RabbitMQ)"]
         Q_AUDIT["q.audit.chapter"]
         Q_INGEST["q.ingest.paper"]
-        EX_PROG["ex.audit.progress (topic)"]
+        EX_PROG["citeguard.events (topic)"]
         DLQ["q.citeguard.dlq"]
     end
 
@@ -63,6 +63,10 @@ flowchart TB
         N1 -- "CACHE_MISS" --> A2 --> N2 --> A3 --> N3
         N3 -- "RETRY_JUDGE (max 2)" --> A3
         N3 -- "NEEDS_PATCH" --> A4
+    end
+
+    subgraph Ingest["Ingestion Plane (Python Async Worker)"]
+        IW["PDF Ingest Worker<br/>(Docling/PyMuPDF + LightRAG insert)"]
     end
 
     subgraph MCP["Scoped MCP Servers (FastMCP over Streamable HTTP)"]
@@ -87,7 +91,9 @@ flowchart TB
     API -->|"Publish Job"| Q_AUDIT
     API -->|"Publish PDF Ingest"| Q_INGEST
     Q_AUDIT --> WF
-    Q_INGEST -->|"PDF Worker (Docling/PyMuPDF)"| M2
+    Q_INGEST --> IW
+    IW -->|"chunks + embeddings"| PG
+    IW -->|"typed KG nodes + LightRAG graph"| NEO
     WF -->|"Progress Events"| EX_PROG --> SSE
     Q_AUDIT -.->|"Exhausted Retries"| DLQ
 
@@ -112,8 +118,10 @@ flowchart TB
 
 CiteGuard uses Google ADK 2.x's typed `Workflow` graph to combine low-latency deterministic nodes (`FunctionNode`) with bounded LLM specialists (`LlmAgent`). Every claim extracted from a chapter is processed as an isolated unit of work, enabling parallel fan-out while preserving strict state isolation.
 
+Orchestration has two levels. The audit worker first runs `claim_extractor` once per chapter to produce an `ExtractedClaimBatch`, then starts one instance of the per-claim workflow below for each claim (bounded by `max_concurrency`). `claim_extractor` is therefore not a node of the per-claim graph.
+
 ```python
-from google.adk.workflows import Workflow
+from google.adk.workflow import Workflow  # singular: google.adk.workflow
 
 citeguard_claim_workflow = Workflow(
     name="citeguard_claim_pipeline",
@@ -138,6 +146,7 @@ citeguard_claim_workflow = Workflow(
                 "RETRY_JUDGE": faithfulness_judge_agent,  # Max 2 retries via session counter
                 "VERIFIED_OK": cache_writer_node,
                 "NEEDS_PATCH": revision_patcher_agent,
+                "UNGROUNDED": result_emitter_node,  # Retries exhausted: emit for manual review, never cache
             },
         ),
         (revision_patcher_agent, cache_writer_node),
@@ -145,6 +154,10 @@ citeguard_claim_workflow = Workflow(
     ],
 )
 ```
+
+Notes on ADK graph semantics that this design relies on:
+* A plain node fires whenever **any** predecessor triggers it; only a `JoinNode` waits for all predecessors. `faithfulness_judge_agent`, `cache_writer_node` and `result_emitter_node` each have several incoming edges and must stay plain nodes, otherwise the `CACHE_HIT` and retry paths would never complete.
+* **Retry exhaustion.** If the judge still returns a quote that cannot be found after 2 retries, `quote_verifier` emits `UNGROUNDED`. The claim is reported with status `NOT_FOUND`, `confidence = 0.0` and a `verdict_payload.ungrounded = true` flag so the UI can mark it for manual review. It bypasses `cache_writer`, so an unverifiable verdict is never served from cache, and bypasses `revision_patcher`, so no patch is generated from ungrounded reasoning.
 
 ### 3.2 Agent Roster & Tool Boundaries
 
@@ -155,12 +168,14 @@ citeguard_claim_workflow = Workflow(
 | **`evidence_retriever`** | `LlmAgent` | `gemini-2.5-flash` | `corpus-rag-mcp`: `search_paper_chunks`, `query_lightrag_graph`, `get_page_window`, `get_paper_index_status`; `academic-search-mcp`: `lookup_paper_by_identifier` | Retrieves both exact passage chunks (BM25 + dense RRF) and Neo4j graph provenance (cross-paper metric/contradiction links). |
 | **`evidence_sanitizer`** | `FunctionNode` | None (Deterministic) | Local sanitizer | Removes invisible Unicode, prompt-injection directives, and wraps each chunk in XML data tags (`<untrusted_evidence>`). |
 | **`faithfulness_judge`** | `LlmAgent` | `gemini-2.5-pro` | **Zero external/MCP tools.** Local constrained tool `record_audit_verdict` only. | Evaluates strict entailment against sanitized evidence. Enforces `ClaimVerificationVerdict` via constrained decoding. |
-| **`quote_verifier`** | `FunctionNode` | None (Deterministic) | Normalized fuzzy/exact substring verifier | Confirms `exact_source_quote` exists verbatim in retrieved chunks. Routes `RETRY_JUDGE` (max 2) if hallucinated, else `VERIFIED_OK` or `NEEDS_PATCH`. |
+| **`quote_verifier`** | `FunctionNode` | None (Deterministic) | Normalized fuzzy/exact substring verifier | Confirms `exact_source_quote` exists verbatim in retrieved chunks. Routes `RETRY_JUDGE` (max 2) if hallucinated and `UNGROUNDED` once retries are exhausted, else `VERIFIED_OK` or `NEEDS_PATCH`. |
 | **`revision_patcher`** | `LlmAgent` | `gemini-2.5-pro` | `latex-mcp`: `generate_latex_diff`; `academic-search-mcp`: `search_candidate_citations` | Invoked only for `CONTRADICTED`, `PARTIALLY_SUPPORTED`, or `NOT_FOUND`. Produces minimal unified `.patch` diffs and alternative citation recommendations. |
 
 ### 3.3 Constrained Decoding Schemas
 
 To satisfy the mandatory constrained-decoding requirement, both `faithfulness_judge` (`output_schema`) and the critical persistence tool `record_audit_verdict` enforce strict Pydantic schemas compiled to JSON Schema grammars by the model provider.
+
+Constrained decoding guarantees the JSON shape only. The cross-field rule in `validate_grounding` below is not expressible in the grammar, so it runs after decoding; a validation failure is treated like a failed quote check and counts against the same 2-retry budget.
 
 ```python
 from enum import Enum
@@ -216,10 +231,10 @@ class ClaimVerificationVerdict(BaseModel):
 
 ## 4. MCP Tool Layer (3 Scoped Streamable HTTP Servers)
 
-All external capabilities are hosted as standalone **FastMCP** microservices communicating over **Streamable HTTP** (`/mcp`), authenticated with internal service bearer tokens. In production, ADK `McpToolset` instances are initialized synchronously at module scope with explicit `tool_filter` lists to enforce least privilege.
+All external capabilities are hosted as standalone **FastMCP** microservices communicating over **Streamable HTTP** (`/mcp`), authenticated with internal service bearer tokens (`Authorization: Bearer <token>`, one distinct token per server). In production, ADK `McpToolset` instances are initialized synchronously at module scope with explicit `tool_filter` lists to enforce least privilege.
 
 ### 4.1 `latex-mcp` (`http://latex-mcp:8001/mcp`)
-* **Isolation:** Project thesis files are bind-mounted **read-only** (`/data/projects:ro`).
+* **Isolation:** Project thesis files are bind-mounted **read-only** (`/data/projects:ro`). Every `file_path` / `bib_path` argument is resolved against `/data/projects/{project_id}` and rejected if the resolved path escapes that directory (`..`, absolute paths, symlinks), since these arguments are produced by an LLM.
 * **Exposed Tools:**
   * `parse_latex_section(project_id: str, file_path: str, section_heading: str | None) -> list[RawSegment]` — Strips comments and non-semantic styling macros while tracking exact line numbers and `\cite`, `\citep`, `\citet` keys.
   * `resolve_bibtex_key(project_id: str, bib_path: str, cite_key: str) -> BibEntry` — Parses `.bib` entries and resolves normalized title, authors, year, DOI, arXiv ID, and local PDF checksum.
@@ -230,7 +245,7 @@ All external capabilities are hosted as standalone **FastMCP** microservices com
 * **Exposed Tools:**
   * `search_paper_chunks(project_id: str, cite_key: str, query: str, top_k: int = 6) -> list[ChunkHit]` — Executes Reciprocal Rank Fusion (RRF) combining BM25 lexical matching (critical for exact metrics, hyperparameters, and p-values) with dense embeddings.
   * `query_lightrag_graph(project_id: str, query: str, mode: Literal["local", "global", "hybrid"] = "hybrid") -> GraphContext` — Queries LightRAG over Neo4j to trace multi-hop relationships (e.g., whether Paper B's claim actually cites Paper A's original number, or if a newer paper refutes a baseline).
-  * `get_page_window(doc_sha256: str, page_number: int, radius: int = 1) -> list[PageText]` — Fetches adjacent pages when claims span tables or page breaks.
+  * `get_page_window(project_id: str, doc_sha256: str, page_number: int, radius: int = 1) -> list[PageText]` — Fetches adjacent pages when claims span tables or page breaks. Scoped by `project_id` like every other corpus tool, so a document hash alone cannot read another project's paper.
   * `get_paper_index_status(project_id: str, cite_key: str) -> IndexStatus` — Reports local ingestion status (`INDEXED | PROCESSING | MISSING`).
 
 ### 4.3 `academic-search-mcp` (`http://academic-search-mcp:8003/mcp`)
@@ -259,8 +274,13 @@ rag = LightRAG(
     graph_storage="Neo4JStorage",
     doc_status_storage="PGDocStatusStorage",
     workspace=project_id,  # Strict tenant/project isolation per thesis
+    embedding_func=gemini_embedding_func,  # Required: EmbeddingFunc, 768 dimensions
+    llm_model_func=gemini_flash_complete,  # Required: used for entity/relation extraction
 )
+await rag.initialize_storages()  # Must be awaited before the first insert or query
 ```
+
+LightRAG does not take connection settings as constructor arguments. The PostgreSQL and Neo4j backends read them from environment variables, which every container that instantiates LightRAG (`corpus-rag-mcp` and the ingest worker) must set: `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DATABASE`, and `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`. Note the name is `NEO4J_USERNAME`, not `NEO4J_USER`.
 
 ### 5.2 Domain Knowledge Graph Schema (Neo4j)
 
@@ -309,7 +329,7 @@ erDiagram
     PAPERS ||--o{ PAPER_CHUNKS : splits_into
     AUDIT_RUNS ||--o{ CLAIM_AUDITS : produces
     CLAIM_AUDITS ||--o{ REVISION_PATCHES : suggests
-    PAPERS ||--o{ VERIFIED_CLAIM_CACHE : anchors
+    PROJECTS ||--o{ VERIFIED_CLAIM_CACHE : caches
 
     USERS {
         uuid id PK "DEFAULT uuidv7()"
@@ -399,8 +419,8 @@ erDiagram
     VERIFIED_CLAIM_CACHE {
         uuid id PK "DEFAULT uuidv7()"
         uuid project_id FK
-        text claim_fingerprint UK
-        text doc_sha256
+        text claim_fingerprint "UNIQUE (project_id, claim_fingerprint)"
+        text doc_sha256 "Soft link to PAPERS.doc_sha256"
         jsonb cached_verdict
         timestamptz verified_at
     }
@@ -463,7 +483,8 @@ class UUIDv7TimestampMixin:
 * **Async Environment:** `alembic/env.py` uses `async_engine_from_config` with `postgresql+asyncpg://`.
 * **Bootstrap Migration (`0001_init_extensions.py`):** Enables `CREATE EXTENSION IF NOT EXISTS vector;` and verifies PostgreSQL 18 `uuidv7()` availability.
 * **Index Definitions:** Creates `HNSW` cosine-similarity indexes (`vector_cosine_ops`) on `paper_chunks.embedding` and `author_memories.embedding`, a `GIN` index on the generated column `paper_chunks.content_tsv`, and a unique composite index on `verified_claim_cache(project_id, claim_fingerprint)`.
-* **Schema Separation:** Application tables live in the `public` schema, ADK `DatabaseSessionService` tables in `adk_sessions`, and LightRAG KV/vector tables in `lightrag`, preventing Alembic autogenerate drift.
+* **Schema Separation:** Application tables live in the `public` schema, ADK `DatabaseSessionService` tables in `adk_sessions`, and LightRAG KV/vector tables in `lightrag`, preventing Alembic autogenerate drift. Neither library has a schema option, so separation is done through the connection `search_path`: `DatabaseSessionService(db_url, connect_args={"server_settings": {"search_path": "adk_sessions"}})` (extra keyword arguments are passed to `create_async_engine`), and LightRAG connects as a dedicated PostgreSQL role whose default path is set once with `ALTER ROLE citeguard_lightrag SET search_path = lightrag, public` (`public` stays on the path so the `vector` type resolves). The bootstrap migration creates both schemas and that role, and `alembic/env.py` sets `include_schemas=False` so autogenerate only inspects `public`.
+* **Embedding Model:** All `vector(768)` columns and LightRAG's `embedding_func` use the same model, `gemini-embedding-001` with `output_dimensionality=768`. Changing the model or dimension requires re-embedding the corpus and a migration, and counts as a breaking change.
 
 ### 6.4 Hybrid Agent Memory Architecture
 * **Short-Term Memory (Session & Turn State):**
@@ -486,6 +507,9 @@ FastAPI exposes versioned JSON endpoints under `/api/v1` and a live SSE stream f
 | `GET /api/v1/auth/config` | Returns active auth mode (`dev` or `prod`) and Google client metadata so the frontend renders the appropriate login UI. | Public |
 | `POST /api/v1/auth/dev/login` | Enabled **only** when `AUTH_MODE=dev`. Validates simple email/password or dev test user and sets HTTP-only JWT cookie. | Public (Dev only) |
 | `GET /api/v1/auth/google/login` & `/callback` | Enabled when `AUTH_MODE=prod`. Runs OAuth 2.0 Authorization Code + PKCE flow, verifies Google ID token, upserts user, and sets HTTP-only cookie. | Public (Prod only) |
+| `POST /api/v1/auth/dev/register` | Enabled **only** when `AUTH_MODE=dev`. Creates a local email/password user. | Public (Dev only) |
+| `POST /api/v1/auth/refresh` | Exchanges a valid refresh-token cookie for a new 15-minute access token (rotating the refresh token). | Refresh cookie |
+| `POST /api/v1/auth/logout` | Revokes the refresh token and clears both cookies. | Authenticated |
 | `POST /api/v1/projects` | Creates a thesis project and provisions its isolated LightRAG/Neo4j workspace. | Authenticated |
 | `POST /api/v1/projects/{id}/papers` | Uploads reference PDF + `.bib` metadata, stores blob, publishes `ingest.paper.requested` to RabbitMQ. | Owner |
 | `POST /api/v1/projects/{id}/audits` | Uploads/selects `.tex`/`.md` section, creates `audit_runs` row (UUID v7), publishes `audit.chapter.requested` to RabbitMQ, returns `202 Accepted`. | Owner |
@@ -500,9 +524,9 @@ Using `aio-pika` (or `FastStream` with RabbitMQ broker), messaging follows an ex
 | Exchange / Queue | Type | Routing Key | Purpose & Durability |
 | :--- | :--- | :--- | :--- |
 | `citeguard.commands` | `direct` (durable) | `audit.chapter.requested` | Routes to `q.audit.chapter` (prefetch=2, manual `ack`, dead-lettered to `citeguard.dlx` after 3 retries). |
-| `citeguard.commands` | `direct` (durable) | `ingest.paper.requested` | Routes to `q.ingest.paper` (prefetch=4, parses PDF via Docling/PyMuPDF, indexes `pgvector` + LightRAG/Neo4j). |
+| `citeguard.commands` | `direct` (durable) | `ingest.paper.requested` | Routes to `q.ingest.paper` (prefetch=4), consumed by the dedicated `ingest-worker` service, which parses the PDF via Docling/PyMuPDF and writes `paper_chunks` (`pgvector`) and LightRAG/Neo4j directly. `corpus-rag-mcp` is read-only and exposes no ingestion tool. |
 | `citeguard.events` | `topic` (durable) | `audit.{run_id}.progress` | Fan-out progress updates (`CLAIM_EXTRACTED`, `CACHE_HIT`, `VERDICT_READY`, `PATCH_READY`, `RUN_COMPLETED`) consumed by FastAPI SSE endpoints. |
-| `citeguard.dlx` | `direct` (durable) | `dlq` | Captures poison messages in `q.citeguard.dlq` and marks the corresponding `audit_runs` row `FAILED` with error diagnostics. |
+| `citeguard.dlx` | `direct` (durable) | `dlq` | Both command queues are declared as **quorum queues** with `x-delivery-limit: 3` and `x-dead-letter-exchange: citeguard.dlx`, which is what enforces "3 retries" (classic queues do not count redeliveries). Captures poison messages in `q.citeguard.dlq` and marks the corresponding `audit_runs` row `FAILED` with error diagnostics. |
 
 ---
 
@@ -560,7 +584,9 @@ Academic PDFs and external web abstracts are untrusted inputs. CiteGuard enforce
 1. **Sanitization Gate (`evidence_sanitizer`):** Strips zero-width Unicode characters, hidden PDF text layers (zero font size or background-matched RGB during Docling/PyMuPDF extraction), and flags instruction-like strings before wrapping text in explicit `<untrusted_evidence>` delimiters.
 2. **Zero-Tool Judge Isolation:** `faithfulness_judge` has no access to MCP file, RAG, or web tools—neutralizing data-exfiltration or tool-hijack payloads hidden in papers.
 3. **Deterministic Quote Grounding (`quote_verifier`):** Every non-`NOT_FOUND` verdict must contain a verbatim substring verified programmatically against retrieved evidence chunks.
-4. **Container & Network Hardening:** All services run as non-root UIDs; `latex-mcp` mounts thesis directories read-only; MCP servers listen only on the internal Docker bridge network and validate `X-Service-Token` headers.
+4. **Container & Network Hardening:** All services run as non-root UIDs; `latex-mcp` mounts thesis directories read-only; MCP servers listen only on the internal Docker bridge network and validate the `Authorization: Bearer` service token.
+
+**Residual risk.** `evidence_retriever` is an LLM with tools that reads retrieved chunks *before* `evidence_sanitizer` runs, so it is the one agent exposed to raw paper text. Its blast radius is limited by design: all of its tools are read-only and project-scoped, and its only outbound call is `lookup_paper_by_identifier`, whose argument is validated against DOI / arXiv / OpenAlex ID patterns so it cannot carry free text to an external API. Its output reaches the judge only as chunks that pass through the sanitizer.
 
 ### 10.2 OpenTelemetry & LangFuse Instrumentation
 
@@ -596,8 +622,10 @@ citeguard/
 │   │   ├── api/              # REST + SSE + Auth strategies (dev/prod)
 │   │   ├── agents/           # ADK Workflow, LlmAgents, FunctionNodes, MemoryService
 │   │   ├── db/               # SQLAlchemy 2.0 async models (UUID v7), Alembic
-│   │   └── workers/          # RabbitMQ consumers (audit + PDF/LightRAG ingest)
+│   │   └── workers/          # RabbitMQ consumers: audit_worker, ingest_worker
 │   └── Dockerfile
+├── infra/
+│   └── postgres/init/        # 01-create-langfuse-db.sql (runs on first Postgres start)
 ├── mcp-servers/
 │   ├── latex-mcp/            # FastMCP :8001 (Streamable HTTP)
 │   ├── corpus-rag-mcp/       # FastMCP :8002 (pgvector + Neo4j/LightRAG)
@@ -615,15 +643,18 @@ citeguard/
 
 ```dockerfile
 FROM python:3.12-slim AS builder
-WORKDIR /build
+# Same path as the runtime stage: a virtualenv is not relocatable, its
+# console scripts (uvicorn, alembic) hard-code the interpreter path.
+WORKDIR /app
 RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+# Dependencies only; the application source is copied in the runtime stage.
+RUN uv sync --frozen --no-dev --no-install-project
 
 FROM python:3.12-slim AS runtime
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --create-home app
 WORKDIR /app
-COPY --from=builder /build/.venv /app/.venv
+COPY --from=builder /app/.venv /app/.venv
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
@@ -649,10 +680,37 @@ COPY --from=builder /build/dist /usr/share/nginx/html
 EXPOSE 80
 ```
 
-### 11.3 Production-Ready `docker-compose.yml`
+### 11.3 Reference `docker-compose.yml` (Development Defaults)
+
+This file is the development and demo stack. The `:-` fallbacks are development credentials, and the Neo4j, RabbitMQ management and LangFuse ports are published to the host for debugging. A production deployment must supply every secret explicitly and remove those `ports` entries.
 
 ```yaml
 name: citeguard
+
+# Shared by langfuse (web) and langfuse-worker. LangFuse v3 needs PostgreSQL,
+# ClickHouse, Redis and S3-compatible storage. Keep these in sync with the
+# official LangFuse self-hosting docker-compose.yml when upgrading.
+x-langfuse-env: &langfuse-env
+  DATABASE_URL: postgresql://citeguard:${POSTGRES_PASSWORD:-citeguard_dev}@postgres:5432/langfuse
+  NEXTAUTH_URL: http://localhost:3001
+  NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-dev_nextauth_secret_change_me}
+  SALT: ${LANGFUSE_SALT:-dev_salt_change_me}
+  # 64 hex characters; generate with `openssl rand -hex 32`
+  ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-citeguard_ch_dev}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${REDIS_PASSWORD:-citeguard_redis_dev}
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-citeguard_minio_dev}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
 
 services:
   postgres:
@@ -663,6 +721,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-citeguard_dev}
     volumes:
       - pg_data:/var/lib/postgresql
+      # Creates the separate `langfuse` database on first start.
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U citeguard -d citeguard"]
       interval: 5s
@@ -705,17 +765,58 @@ services:
       retries: 10
     networks: [internal]
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-citeguard_ch_dev}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-citeguard_redis_dev}"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD:-citeguard_redis_dev} ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  minio:
+    image: minio/minio
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" /data'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-citeguard_minio_dev}
+    volumes:
+      - minio_data:/data
+    networks: [internal]
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    environment: *langfuse-env
+    depends_on: &langfuse-depends
+      postgres: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_started }
+    networks: [internal]
+
   langfuse:
-    image: langfuse/langfuse:2
+    image: langfuse/langfuse:3
     ports:
       - "3001:3000"
-    environment:
-      DATABASE_URL: postgresql://citeguard:${POSTGRES_PASSWORD:-citeguard_dev}@postgres:5432/langfuse
-      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-dev_nextauth_secret_change_me}
-      SALT: ${LANGFUSE_SALT:-dev_salt_change_me}
-      NEXTAUTH_URL: http://localhost:3001
-    depends_on:
-      postgres: { condition: service_healthy }
+    environment: *langfuse-env
+    depends_on: *langfuse-depends
     networks: [internal, edge]
 
   latex-mcp:
@@ -731,13 +832,45 @@ services:
     environment:
       MCP_SERVICE_TOKEN: ${CORPUS_MCP_TOKEN:-dev_corpus_token}
       DATABASE_URL: postgresql+asyncpg://citeguard:${POSTGRES_PASSWORD:-citeguard_dev}@postgres:5432/citeguard
+      # LightRAG reads its connections from these variables (see section 5.1).
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: citeguard_lightrag
+      POSTGRES_PASSWORD: ${LIGHTRAG_DB_PASSWORD:-citeguard_lightrag_dev}
+      POSTGRES_DATABASE: citeguard
       NEO4J_URI: bolt://neo4j:7687
-      NEO4J_USER: neo4j
+      NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-citeguard_neo4j_dev}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
     depends_on:
       postgres: { condition: service_healthy }
       neo4j: { condition: service_healthy }
+    networks: [internal]
+
+  ingest-worker:
+    build: ./backend
+    command: ["python", "-m", "app.workers.ingest_worker"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://citeguard:${POSTGRES_PASSWORD:-citeguard_dev}@postgres:5432/citeguard
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-citeguard}:${RABBITMQ_PASS:-citeguard_mq_dev}@rabbitmq:5672/
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: citeguard_lightrag
+      POSTGRES_PASSWORD: ${LIGHTRAG_DB_PASSWORD:-citeguard_lightrag_dev}
+      POSTGRES_DATABASE: citeguard
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-citeguard_neo4j_dev}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+    volumes:
+      - paper_storage:/data/papers:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      neo4j: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
     networks: [internal]
 
   academic-search-mcp:
@@ -766,6 +899,7 @@ services:
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
     volumes:
       - thesis_storage:/data/projects
+      - paper_storage:/data/papers   # Uploaded reference PDFs, read by ingest-worker
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
@@ -809,7 +943,10 @@ volumes:
   pg_data:
   neo4j_data:
   rabbitmq_data:
+  clickhouse_data:
+  minio_data:
   thesis_storage:
+  paper_storage:
 
 networks:
   internal:
@@ -818,7 +955,7 @@ networks:
     driver: bridge
 ```
 
-*(Note: For LangFuse v3 self-hosting in production, swap `langfuse:2` with the official LangFuse v3 stack adding ClickHouse + Redis + MinIO; LangFuse v2 keeps single-machine Docker Compose footprint minimal for academic demos while preserving full OpenTelemetry ingestion.)*
+*(Note: LangFuse v3 or later is required, not optional. The OpenTelemetry (OTLP) ingestion endpoint that the current LangFuse Python SDK and `GoogleADKInstrumentor` export to does not exist in LangFuse v2, so a v2 server would receive no traces. This is why the stack includes ClickHouse, Redis and MinIO. A lighter alternative for demos is LangFuse Cloud: drop those five services and point `LANGFUSE_HOST` at the cloud endpoint.)*
 
 ---
 
