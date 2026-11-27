@@ -21,6 +21,7 @@ CiteGuard reads a thesis chapter (`.tex` or `.md`), extracts every cited claim, 
 - [Running it](#running-it)
 - [Evaluation](#evaluation)
 - [Roadmap](#roadmap)
+- [Contributing](#contributing)
 - [Versioning](#versioning)
 - [License](#license)
 
@@ -280,6 +281,10 @@ No results exist yet. They will be published here once the benchmark has been ru
 | 4 | Benchmark and ablations, injection test suite, Google OAuth verification, final report |
 
 The task-level breakdown, with dependencies and exit criteria, is in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+
+## Contributing
+
+How the group works on this repository (tasks, branches, pull requests, review and project-specific code rules) is described in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Versioning
 

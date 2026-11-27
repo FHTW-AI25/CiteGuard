@@ -8,6 +8,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Added
 
+- Contributing guide (`CONTRIBUTING.md`) covering tasks and issues, branches, commit and pull-request rules, review pairs and project-specific code rules.
 - Evaluation protocol (`docs/EVALUATION.md`) defining the benchmark construction, labelling rules, metric definitions, ablation profiles, injection suite and reporting rules.
 - Implementation plan (`docs/IMPLEMENTATION_PLAN.md`) with per-week tasks, dependencies, milestones, cut order and risks.
 

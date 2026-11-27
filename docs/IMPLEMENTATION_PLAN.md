@@ -87,7 +87,7 @@ Goal: a running stack with no intelligence in it yet.
 
 | ID | Task | Owner | Depends on | Done when |
 | :--- | :--- | :--- | :--- | :--- |
-| W1-01 | Repository scaffold: `backend/` and each MCP server as `uv` projects, `frontend/` with `pnpm`, `ruff`, `pytest`, `vitest`, `.env.example`, `CONTRIBUTING.md`. Wire package versions to `VERSION`. | A | — | `uv run pytest` and `pnpm test` run (with zero tests) in a clean clone; commands are recorded in `README.md` and `CLAUDE.md`. |
+| W1-01 | Repository scaffold: `backend/` and each MCP server as `uv` projects, `frontend/` with `pnpm`, `ruff`, `pytest`, `vitest`, `.env.example`. Replace the planned commands in `CONTRIBUTING.md` with the verified ones. Wire package versions to `VERSION`. | A | — | `uv run pytest` and `pnpm test` run (with zero tests) in a clean clone; commands are recorded in `README.md` and `CLAUDE.md`. |
 | W1-02 | CI: lint, type-check and tests on every pull request; check that `CHANGELOG.md` changed. | D | W1-01 | A failing test blocks merge. |
 | W1-03 | Compose core: PostgreSQL 18 with `pgvector`, Neo4j, RabbitMQ, with health checks, the `internal` and `edge` networks and the init script for the `langfuse` database. | A | W1-01 | `docker compose up postgres neo4j rabbitmq` reports all healthy. |
 | W1-04 | LangFuse v3 stack (ClickHouse, Redis, MinIO, web, worker), checked against LangFuse's official compose file. | C | W1-03 | The LangFuse UI opens; a test span sent with the Python SDK appears in it. |
