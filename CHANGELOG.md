@@ -8,6 +8,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Added
 
+- Agent instructions (`AGENTS.md`) for AI coding tools, with `CLAUDE.md` importing it so that every harness reads the same file.
 - Architecture decision records (`docs/adr/`) with a process and template, and three proposed records: model selection (0001), LangFuse deployment (0002) and PDF parsing libraries (0003).
 - Contributing guide (`CONTRIBUTING.md`) covering tasks and issues, branches, commit and pull-request rules, review pairs and project-specific code rules.
 - Evaluation protocol (`docs/EVALUATION.md`) defining the benchmark construction, labelling rules, metric definitions, ablation profiles, injection suite and reporting rules.
@@ -35,7 +36,6 @@ Design baseline. No runnable code yet.
 
 - Technical Design Document (`docs/TDD.md`, architecture baseline v1.0) covering the agent workflow, MCP tool servers, data model, API, authentication, frontend, security, deployment and evaluation plan.
 - `README.md` with a project overview based on the design.
-- `CLAUDE.md` with guidance for Claude Code.
 - Semantic versioning policy (`docs/VERSIONING.md`), `VERSION` file, this changelog and the release helper `scripts/bump-version.sh`.
 
 [Unreleased]: https://github.com/FHTW-AI25/CiteGuard/compare/v0.1.0...HEAD

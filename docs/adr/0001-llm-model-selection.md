@@ -61,7 +61,7 @@ Proposed:
 ## Consequences
 
 - Swapping a model is a configuration change, which also makes the fallback cheap if a model is withdrawn mid-project.
-- The TDD's agent table, the README and `CLAUDE.md` name specific models and must be updated when the identifiers are chosen.
+- The TDD's agent table, the README and `AGENTS.md` name specific models and must be updated when the identifiers are chosen.
 - Cost estimates in the implementation plan's risk table must be redone with current prices.
 - If a model is retired between the benchmark runs and the report, the results stand but cannot be reproduced by readers. The report states the run dates.
 
@@ -79,7 +79,7 @@ Run these with the group's API key and attach the output to the pull request:
 ## On acceptance
 
 - Fill in the chosen identifiers here and set the status to Accepted.
-- Update TDD §3.2 (model tier column) and §6.3, the agent table in the README, and the Models section of `CLAUDE.md`.
+- Update TDD §3.2 (model tier column) and §6.3, the agent table in the README, and the Models section of `AGENTS.md`.
 - Add `MODEL_FAST`, `MODEL_STRONG` and `MODEL_EMBEDDING` to `.env.example` and the README variable table.
 - Add a changelog entry.
 

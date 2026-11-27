@@ -221,3 +221,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Personal AI assistant instructions and settings
+CLAUDE.local.md
+.claude/settings.local.json

@@ -85,6 +85,13 @@ Some changes affect everyone. Announce them in the group channel and get agreeme
 - **The TDD stays true.** If you implement something differently from the TDD on purpose, change the TDD in the same pull request. If you find the TDD is wrong, fix it.
 - **Record decisions as ADRs.** A choice between real alternatives (a library, a storage layout, a protocol) gets a short record in `docs/adr/NNNN-title.md` with the context, the decision and the consequences. One page is enough. The template, the status meanings and the index are in [docs/adr/README.md](docs/adr/README.md).
 
+## AI coding assistants
+
+- `AGENTS.md` is the one shared instruction file for AI coding tools. `CLAUDE.md` only imports it. If your tool reads a different file name, add a file that points to `AGENTS.md` rather than copying its content.
+- Change `AGENTS.md` through a pull request. It holds project facts and rules, not personal preferences or tricks for one model.
+- Personal instructions and settings stay out of the repository: `CLAUDE.local.md` and `.claude/settings.local.json` are git-ignored.
+- You are responsible for what you commit, whoever or whatever wrote it. Generated code gets the same tests and review as any other.
+
 ## Development setup
 
 > The tooling below is created by task W1-01. Until that is merged these commands do not exist. Whoever completes W1-01 replaces this note with the verified commands.
