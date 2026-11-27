@@ -48,7 +48,7 @@ Commits inside a branch can be as rough as you like, because pull requests are s
 - **Size:** aim for under 400 changed lines, not counting lock files and generated code. Split larger tasks into several pull requests behind the same issue.
 - **Draft early.** Open a draft pull request as soon as there is something to look at, especially for anything that touches a shared contract.
 
-Checklist before asking for review:
+Checklist before asking for review (GitHub pre-fills it from `.github/PULL_REQUEST_TEMPLATE.md`; keep the two in step):
 
 - [ ] The task's "done when" condition is met.
 - [ ] Tests cover the new behaviour and pass locally.
