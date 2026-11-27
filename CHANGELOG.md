@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- Implementation plan (`docs/IMPLEMENTATION_PLAN.md`) with per-week tasks, dependencies, milestones, cut order and risks.
+
 ### Changed
 
 - Technical Design Document revised to architecture baseline v1.1:

@@ -279,6 +279,8 @@ No results exist yet. They will be published here once the benchmark has been ru
 | 3 | Audit workbench frontend, live progress stream, graph viewer, diff reviewer, tracing |
 | 4 | Benchmark and ablations, injection test suite, Google OAuth verification, final report |
 
+The task-level breakdown, with dependencies and exit criteria, is in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+
 ## Versioning
 
 CiteGuard follows [Semantic Versioning](https://semver.org/). The current version is in [`VERSION`](VERSION), release notes are in [CHANGELOG.md](CHANGELOG.md), and the rules for bumping and releasing are in [docs/VERSIONING.md](docs/VERSIONING.md).
