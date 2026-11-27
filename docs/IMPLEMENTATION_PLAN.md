@@ -101,7 +101,7 @@ Goal: a running stack with no intelligence in it yet.
 | W1-12 | `latex-mcp`: `parse_latex_section`, `resolve_bibtex_key`, `generate_latex_diff`, with path containment. | B | W1-07, W1-11 | Golden-file tests on the sample chapter (line numbers, `\cite` variants); path traversal attempts are rejected; the diff applies cleanly with `git apply`. |
 | W1-13 | `academic-search-mcp`: `lookup_paper_by_identifier`, `search_candidate_citations`, rate limiting, response cache, identifier validation. | B | W1-07, W1-11 | Tests pass against recorded API responses; a free-text "identifier" is rejected. |
 | W1-14 | Frontend scaffold: Vite, Tailwind, shadcn/ui, design tokens from §9.2, routing, API client, login page, project list. | D | W1-01 | A user logs in and creates a project in the browser against the real API. |
-| W1-15 | Benchmark corpus: select the open-access papers, download PDFs, start extracting the 90 ground-truth claims with page references. Write `docs/EVALUATION.md`. | D | P-06 | At least 30 claims are labelled; the labelling format is fixed. |
+| W1-15 | Benchmark corpus: select the open-access papers, download PDFs, start extracting the 90 ground-truth claims with page references, following [`EVALUATION.md`](EVALUATION.md). | D | P-06 | At least 30 claims are labelled; the labelling format is fixed. |
 
 **M1 check:** fresh clone → `cp .env.example .env` → `docker compose up --build` → log in → create a project → call `parse_latex_section` on the sample chapter.
 

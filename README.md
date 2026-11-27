@@ -268,7 +268,7 @@ The benchmark is a 180-claim suite built from open-access arXiv papers: 90 unmod
 | Memory | Session only | Session + claim cache | p50/p95 latency, prompt token reduction |
 | Security | Unsanitized chunks | Sanitizer + zero-tool judge | Attack success rate on 20 injected PDFs |
 
-No results exist yet. They will be published here once the benchmark has been run.
+No results exist yet. They will be published here once the benchmark has been run. How the benchmark is built, labelled and scored is defined in [docs/EVALUATION.md](docs/EVALUATION.md).
 
 ## Roadmap
 
