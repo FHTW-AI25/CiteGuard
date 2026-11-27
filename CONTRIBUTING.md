@@ -21,6 +21,7 @@ Related documents:
 - Every task in the implementation plan has an ID such as `W2-04`. Each gets one GitHub issue titled `W2-04: corpus-rag-mcp chunk search`, in the milestone for its week.
 - Work that is not in the plan (a bug, an idea) gets an issue first. If it is more than a small fix, it is added to the plan before anyone starts on it.
 - Before starting a task, check its **Depends on** column. If a dependency is not merged, build against the shared contracts with a fake rather than waiting.
+- The pinned **Task map** issue shows every task with its dependencies and marks which ones are ready to start. It is generated from the issues by `scripts/task_map.py`, so do not edit it by hand. It reads the "Depends on" section of each issue, and it counts a task as in progress once a branch starting with the task ID exists. If a dependency changes, edit the issue as well as the plan.
 - A task is finished when its **Done when** condition is met and the [definition of done](docs/IMPLEMENTATION_PLAN.md#definition-of-done) holds.
 
 ## Branches

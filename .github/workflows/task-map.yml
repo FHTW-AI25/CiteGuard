@@ -1,0 +1,33 @@
+name: Task map
+
+# Rebuilds the dependency diagrams in the issue labelled `task-map`.
+on:
+  issues:
+    types: [opened, edited, deleted, closed, reopened, labeled, unlabeled, milestoned, demilestoned]
+  create:
+  delete:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: task-map
+  cancel-in-progress: true
+
+jobs:
+  update:
+    # Changes to the map issue itself must not trigger another run.
+    if: ${{ !contains(github.event.issue.labels.*.name, 'task-map') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Update the task map issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 scripts/task_map.py --update
