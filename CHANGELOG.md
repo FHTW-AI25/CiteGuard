@@ -8,14 +8,15 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Added
 
+- Architecture decision records (`docs/adr/`) with a process and template, and three proposed records: model selection (0001), LangFuse deployment (0002) and PDF parsing libraries (0003).
 - Contributing guide (`CONTRIBUTING.md`) covering tasks and issues, branches, commit and pull-request rules, review pairs and project-specific code rules.
 - Evaluation protocol (`docs/EVALUATION.md`) defining the benchmark construction, labelling rules, metric definitions, ablation profiles, injection suite and reporting rules.
 - Implementation plan (`docs/IMPLEMENTATION_PLAN.md`) with per-week tasks, dependencies, milestones, cut order and risks.
 
 ### Changed
 
-- Technical Design Document revised to architecture baseline v1.1:
-  - The deployment stack now uses LangFuse v3 with ClickHouse, Redis and MinIO, because LangFuse v2 cannot receive OpenTelemetry traces.
+- Technical Design Document revised to architecture baseline v1.2:
+  - The deployment stack now uses LangFuse v4 with ClickHouse, Redis and MinIO. LangFuse v2 cannot receive OpenTelemetry traces, and Python SDK v5 requires a server of 4.59.0 or later.
   - Paper ingestion is a dedicated `ingest-worker` service with a shared `paper_storage` volume. The earlier compose file had no consumer for the ingestion queue.
   - The per-claim workflow has a new `UNGROUNDED` route for when the judge's quote still cannot be verified after 2 retries. Such claims are reported for manual review and never cached.
   - `get_page_window` takes a `project_id`, MCP servers authenticate with `Authorization: Bearer`, and `latex-mcp` rejects paths outside the project directory.

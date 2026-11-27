@@ -2,7 +2,7 @@
 
 | Metadata | Details |
 | :--- | :--- |
-| **Document Status** | Proposed — Architecture Baseline v1.1 (corrections after checking against google-adk 2.15, lightrag-hku 1.5, langfuse 5.x and fastmcp 4.x) |
+| **Document Status** | Proposed — Architecture Baseline v1.2 (v1.1: corrections after checking against google-adk 2.15, lightrag-hku 1.5, langfuse 5.x and fastmcp 4.x; v1.2: LangFuse server raised to v4 to match SDK v5) |
 | **Reference Standard** | Adapted from Google ADK Technical Design Document Reference Architecture |
 | **Primary Stack** | Google ADK 2.x, FastMCP (Streamable HTTP), FastAPI, PostgreSQL 18 (`pgvector`, native `uuidv7()`), SQLAlchemy 2.0 (Async), Alembic, RabbitMQ, Neo4j + LightRAG, Vite + React + Tailwind CSS + shadcn/ui, OpenTelemetry + LangFuse, Docker Compose |
 | **Core Objective** | Design, implement, evaluate, and benchmark a production-ready Multi-Agent System that audits Master's thesis drafts (`.tex` / `.md`) against cited literature for factual faithfulness, numeric drift, and citation accuracy. |
@@ -687,7 +687,7 @@ This file is the development and demo stack. The `:-` fallbacks are development 
 ```yaml
 name: citeguard
 
-# Shared by langfuse (web) and langfuse-worker. LangFuse v3 needs PostgreSQL,
+# Shared by langfuse (web) and langfuse-worker. LangFuse v4 needs PostgreSQL,
 # ClickHouse, Redis and S3-compatible storage. Keep these in sync with the
 # official LangFuse self-hosting docker-compose.yml when upgrading.
 x-langfuse-env: &langfuse-env
@@ -802,7 +802,7 @@ services:
     networks: [internal]
 
   langfuse-worker:
-    image: langfuse/langfuse-worker:3
+    image: langfuse/langfuse-worker:4   # pin an exact 4.x release >= 4.59.0
     environment: *langfuse-env
     depends_on: &langfuse-depends
       postgres: { condition: service_healthy }
@@ -812,7 +812,7 @@ services:
     networks: [internal]
 
   langfuse:
-    image: langfuse/langfuse:3
+    image: langfuse/langfuse:4          # same version as langfuse-worker
     ports:
       - "3001:3000"
     environment: *langfuse-env
@@ -955,7 +955,7 @@ networks:
     driver: bridge
 ```
 
-*(Note: LangFuse v3 or later is required, not optional. The OpenTelemetry (OTLP) ingestion endpoint that the current LangFuse Python SDK and `GoogleADKInstrumentor` export to does not exist in LangFuse v2, so a v2 server would receive no traces. This is why the stack includes ClickHouse, Redis and MinIO. A lighter alternative for demos is LangFuse Cloud: drop those five services and point `LANGFUSE_HOST` at the cloud endpoint.)*
+*(Note: The server version is dictated by the SDK. The OpenTelemetry (OTLP) ingestion endpoint does not exist in LangFuse v2, so a v2 server would receive no traces. LangFuse Python SDK v5, the current release, requires a self-hosted server of 4.59.0 or later; a v3 server only works with SDK v4. The stack therefore uses LangFuse v4, and the SDK and server versions must be pinned together. See [ADR 0002](adr/0002-langfuse-deployment.md). This is why the stack includes ClickHouse, Redis and MinIO. A lighter alternative for demos is LangFuse Cloud: drop those five services and point `LANGFUSE_HOST` at the cloud endpoint.)*
 
 ---
 

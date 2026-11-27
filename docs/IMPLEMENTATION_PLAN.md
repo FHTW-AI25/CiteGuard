@@ -70,13 +70,13 @@ Each milestone ends with a tagged release. Breaking changes bump the minor versi
 
 ## Before week 1
 
-Decisions and access that block the first tasks. Record each decision as an ADR in `docs/adr/`.
+Decisions and access that block the first tasks. The three design decisions have proposed records in [`docs/adr/`](adr/README.md), each with a recommendation and the checks to run before accepting it.
 
 | ID | Item |
 | :--- | :--- |
-| P-01 | Confirm `gemini-2.5-flash` and `gemini-2.5-pro` are available for the whole project period, or choose replacements. |
-| P-02 | Decide LangFuse self-hosted (five containers) or LangFuse Cloud. |
-| P-03 | Decide PyMuPDF (AGPL) plus Docling, or Docling only. |
+| P-01 | Choose the two model tiers and pin exact model versions. [ADR 0001](adr/0001-llm-model-selection.md) |
+| P-02 | Decide LangFuse self-hosted (five containers) or LangFuse Cloud. [ADR 0002](adr/0002-langfuse-deployment.md) |
+| P-03 | Decide the PDF parsing libraries, given that PyMuPDF is AGPL. [ADR 0003](adr/0003-pdf-parsing-libraries.md) |
 | P-04 | Obtain the Gemini API key; create the Google OAuth client for `AUTH_MODE=prod`; optionally request a Semantic Scholar key. |
 | P-05 | Agree which person owns each of the four tracks and fill in the names in [Tracks](#tracks). |
 | P-06 | Pick the sample thesis chapter and its bibliography used for development and demos (10 to 15 open-access papers). |
@@ -90,7 +90,7 @@ Goal: a running stack with no intelligence in it yet.
 | W1-01 | Repository scaffold: `backend/` and each MCP server as `uv` projects, `frontend/` with `pnpm`, `ruff`, `pytest`, `vitest`, `.env.example`. Replace the planned commands in `CONTRIBUTING.md` with the verified ones. Wire package versions to `VERSION`. | A | — | `uv run pytest` and `pnpm test` run (with zero tests) in a clean clone; commands are recorded in `README.md` and `CLAUDE.md`. |
 | W1-02 | CI: lint, type-check and tests on every pull request; check that `CHANGELOG.md` changed. | D | W1-01 | A failing test blocks merge. |
 | W1-03 | Compose core: PostgreSQL 18 with `pgvector`, Neo4j, RabbitMQ, with health checks, the `internal` and `edge` networks and the init script for the `langfuse` database. | A | W1-01 | `docker compose up postgres neo4j rabbitmq` reports all healthy. |
-| W1-04 | LangFuse v3 stack (ClickHouse, Redis, MinIO, web, worker), checked against LangFuse's official compose file. | C | W1-03 | The LangFuse UI opens; a test span sent with the Python SDK appears in it. |
+| W1-04 | LangFuse v4 stack (ClickHouse, Redis, MinIO, web, worker), checked against LangFuse's official compose file, with SDK and server versions pinned together ([ADR 0002](adr/0002-langfuse-deployment.md)). | C | W1-03 | The LangFuse UI opens; a test span sent with the Python SDK appears in it. |
 | W1-05 | Alembic: async environment, bootstrap migration (extension, `adk_sessions` and `lightrag` schemas, LightRAG role, `uuidv7()` check), then all tables and indexes from §6. | A | W1-03 | `alembic upgrade head` and `downgrade base` both succeed on an empty database; autogenerate reports no drift. |
 | W1-06 | SQLAlchemy models with `UUIDv7TimestampMixin` and a repository layer. | C | W1-05 | Round-trip tests for each model pass against a real PostgreSQL. |
 | W1-07 | Shared contracts package: `ClaimVerificationVerdict`, `ExtractedClaimBatch`, MCP return types (`RawSegment`, `BibEntry`, `ChunkHit`, …), progress events. | C | W1-01 | Schemas import from backend and MCP servers; validator tests cover the grounding rule. |
