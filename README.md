@@ -21,6 +21,7 @@ CiteGuard reads a thesis chapter (`.tex` or `.md`), extracts every cited claim, 
 - [Running it](#running-it)
 - [Evaluation](#evaluation)
 - [Roadmap](#roadmap)
+- [Versioning](#versioning)
 - [License](#license)
 
 ## What it checks
@@ -275,6 +276,10 @@ No results exist yet. They will be published here once the benchmark has been ru
 | 2 | PDF ingestion, `corpus-rag-mcp`, agent workflow, constrained schemas, quote verifier loop |
 | 3 | Audit workbench frontend, live progress stream, graph viewer, diff reviewer, tracing |
 | 4 | Benchmark and ablations, injection test suite, Google OAuth verification, final report |
+
+## Versioning
+
+CiteGuard follows [Semantic Versioning](https://semver.org/). The current version is in [`VERSION`](VERSION), release notes are in [CHANGELOG.md](CHANGELOG.md), and the rules for bumping and releasing are in [docs/VERSIONING.md](docs/VERSIONING.md).
 
 ## License
 
